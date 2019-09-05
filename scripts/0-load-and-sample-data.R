@@ -179,8 +179,88 @@ for (ii in 1:nFiles) {
   
 }
 
+rm(data_twitter, data_news, data_blogs)
+
+# regular expressions:
+
+# ^ start of a line
+# $ end of a line
+# [Hh][Ii] matches HI, Hi, hI, hi
+# [a-zA-z] matches any letter
+# . refers to any character/symbol
+# | one expression or another (can include more than two)
+# ^[Gg]ood|[Bb]ad either good at start of line, or bad anywhere
+# ^([Gg]ood|[Bb]ad) either good or bad at start of line
+# ? indicated expression is optional
+# \ escape the metacharacter (i.e. \. actually look for a period)
+# * repeat any number of times, including none
+# + at least one
+# { } maximum and nimum number of matches of any expression
+# see notes for max/min details
 
 
+###### quiz 1
+# find the number of lines where the words 'love' and 'hate'
+# (all lowercase) occur in the twitter dataset
+filecon = file(path('data/data_raw/en_US/en_US.twitter.txt'), 'r')
+tally_love = 0
+tally_hate = 0
+while ( TRUE ) {
+  line = readLines(filecon, 1)
+  tally_love = tally_love + length(grep('[l][o][v][e]', line, value = TRUE))
+  tally_hate = tally_hate + length(grep('[h][a][t][e]', line, value = TRUE))
+  if ( length(line) == 0 ) {
+    break
+  }
+}
+close(filecon)
+tally_love/tally_hate
 
+# find the one tweet that has the word 'biostats'
+filecon = file(path('data/data_raw/en_US/en_US.twitter.txt'), 'r')
+while ( TRUE ) {
+  line = readLines(filecon, 1)
+  tally_love = tally_love + length(grep('[l][o][v][e]', line, value = TRUE))
+  if (length(grep('biostats', line, value = TRUE)) == 1) {
+    text <- grep('biostats', line, value = TRUE)
+  }
+  if ( length(line) == 0 ) {
+    break
+  }
+}
+text
+close(filecon)
 
+# determine how many tweets have the exact characters:
+# A computer once beat me at chess, but it was no match for me at kickboxing
+filecon = file(path('data/data_raw/en_US/en_US.twitter.txt'), 'r')
+tally = 0
+while ( TRUE ) {
+  line = readLines(filecon, 1)
+  tally = tally + length(grep('A computer once beat me at chess, but it was no match for me at kickboxing', line, value = TRUE))
+  if ( length(line) == 0 ) {
+    break
+  }
+}
+close(filecon)
+tally
 
+####### command line options for all answers:
+# get file size
+ls -alh (gets file size)
+
+#get number of lines
+#awk '{print length}' filename |sort -nr|head -1
+
+# find lines with 'love' and 'hate'
+#love=$(grep "love" en_US.twitter.txt wc −l)
+#hate=$(grep "hate" en_US.twitter.txt  wc−l)
+#let m=love/hate
+#echo $m
+
+# find tweets with 'biostats'
+# grep -i "biostat" en_US.twitter.txt
+
+# find tweets with string of interest
+# grep -x "A computer ..." en_US.twitter.txt wc -l
+#grep "love" filename wc -l
