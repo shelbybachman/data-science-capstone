@@ -1,7 +1,7 @@
 # this script loads and samples the raw data
 # for shelby's data science capstone project
 # written by shelby bachman, 2019
-# last updated 04.09.2019
+# last updated 18.10.2019
 
 # this script loads raw data files data/data_raw/en_US/*
 # for each raw data file, it outputs 3 .csv files 
@@ -13,173 +13,81 @@ rm(list = ls())
 
 # load packages
 library(rprojroot)
-library(data.table)
+library(R.utils)
 
 # source files within this project
 path <- function(x) find_root_file(x, criterion = has_file('data-science-capstone.Rproj'))
 
-###### determine number of lines in data files
+###### get file size & number of lines in each file
 
 # en_US.twitter.txt
-n_lines <- 0
-filecon <- file(path('data/data_raw/en_US/en_US.twitter.txt'), open='r')
-( while((lines_read <- length(readLines(filecon,20000))) > 0 )
-  n_lines <- n_lines + lines_read )
-close(filecon)
-nLines_twitter <- n_lines
-rm(n_lines, filecon, lines_read)
+file_twitter <- path('data/data_raw/en_US/en_US.twitter.txt')
+fileSize_twitter <- file.size(file_twitter) / (1000*1000) # get file size in mb
+nLines_twitter <- as.numeric(countLines(file_twitter)) # get number of lines in file
 
 # en_US.news.txt
-n_lines <- 0
-filecon <- file(path('data/data_raw/en_US/en_US.news.txt'), open='r')
-( while((lines_read <- length(readLines(filecon,20000))) > 0 )
-  n_lines <- n_lines + lines_read )
-close(filecon)
-nLines_news <- n_lines
-rm(n_lines, filecon, lines_read)
+file_news <- path('data/data_raw/en_US/en_US.news.txt')
+fileSize_news <- file.size(file_news) / (1000*1000) # get file size in mb
+nLines_news <- as.numeric(countLines(file_news)) # get number of lines in file
 
 # en_US.blogs.txt
-n_lines <- 0
-filecon <- file(path('data/data_raw/en_US/en_US.blogs.txt'), open='r')
-( while((lines_read <- length(readLines(filecon,20000))) > 0 )
-  n_lines <- n_lines + lines_read )
+file_blogs <- path('data/data_raw/en_US/en_US.blogs.txt')
+fileSize_blogs <- file.size(file_blogs) / (1000*1000) # get file size in mb
+nLines_blogs <- as.numeric(countLines(file_blogs)) # get number of lines in file
+
+# estimate size and number of lines if all files were combined
+fileSize_total <- fileSize_twitter + fileSize_news + fileSize_blogs
+nLines_total <- nLines_twitter + nLines_news + nLines_blogs
+
+###### read in all files and combine into single corpus
+
+filecon <- file(file_twitter, 'r')
+text_twitter <- readLines(filecon, encoding = 'UTF-8', warn = FALSE)
 close(filecon)
-nLines_blogs <- n_lines
-rm(n_lines, filecon, lines_read)
 
-###### create random subsets of the lines in each data file
-# (for each file, creating 3 random subsets)
+filecon <- file(file_news, 'r')
+text_news <- readLines(filecon, encoding = 'UTF-8', warn = FALSE)
+close(filecon)
 
-# set number of subset files to create
-nFiles <- 3
+filecon <- file(file_blogs, 'r')
+text_blogs <- readLines(filecon, encoding = 'UTF-8', warn = FALSE)
+close(filecon)
 
-# initialize random number generator
-set.seed(18)
+text_all <- c(text_twitter, text_news, text_blogs)
+nLines_total <- length(text_all)
+rm(text_twitter, text_news, text_blogs)
 
-# set probability of reading each line in the file
-prob = 0.001
+####### shuffle lines & subset into samples
 
-### en_US.twitter.txt
+# set number of lines for each subsample by rounding down
+nSamples <-  30
+nLinesPerSample <- floor(nLines_total / nSamples)
 
-# create a subset file in each iteration of the loop
-# during each iteration, open the file connect, 
-# read random lines, save a file with the read lines, 
-# and close the file connection
-for (ii in 1:nFiles) {
+# randomly permute order of lines in text_all
+text_all <- text_all[sample(nLines_total)]
+
+for (ii in 1:nSamples) {
   
-  # decide whether or not to read each line
-  # 0.5% of the time, read the line
-  toss_twitter <- rbinom(n = nLines_twitter, size = 1, prob = prob)
+  # set indices of lines to read
+  index_start <- nLinesPerSample*(ii-1) + 1
+  index_end <- nLinesPerSample*ii
+  indices <- index_start:index_end
   
-  # open file connection
-  filecon <- file(path('data/data_raw/en_US/en_US.twitter.txt'), 'r')
+  # subset lines and save
+  text_subset <- text_all[indices] 
   
-  # initialize data frame to store lines that have been read
-  data_twitter <- data.frame()
-  
-  # loop through lines in the file and read random selection
-  for (jj in 1:nLines_twitter) {
-    if (toss_twitter[jj] == 1) {
-      data_twitter <- rbind(data_twitter, 
-                            as.data.frame(readLines(filecon, 1)))
-    }
-  }
-  colnames(data_twitter) <- 'text'
-  
-  # set name of file where data will be saved
-  output_file <- paste(path('data/data_subset/'), 'en_US_twitter_subset_', ii, '.csv', sep = '')
-  
-  # write data to file
-  write.csv(data_twitter, 
-            file = output_file,
-            quote = FALSE, row.names = FALSE)
-  
-  # close file connection
+  # write subset to file
+  filename_subset <- paste(path('data/data_subset/subset_'), ii, '.txt', sep = '')
+  filecon <- file(filename_subset, 'w')
+  writeLines(text_subset, filecon)
   close(filecon)
+  rm(filename_subset, text_subset)
   
 }
 
-### en_US.news.txt
+rm(text_all)
 
-# create a subset file in each iteration of the loop
-# during each iteration, open the file connect, 
-# read random lines, save a file with the read lines, 
-# and close the file connection
-for (ii in 1:nFiles) {
-  
-  # decide whether or not to read each line
-  # 0.5% of the time, read the line
-  toss_news <- rbinom(n = nLines_news, size = 1, prob = prob)
-  
-  # open file connection
-  filecon <- file(path('data/data_raw/en_US/en_US.news.txt'), 'r')
-  
-  # initialize data frame to store lines that have been read
-  data_news <- data.frame()
-  
-  # loop through lines in the file and read random selection
-  for (jj in 1:nLines_news) {
-    if (toss_news[jj] == 1) {
-      data_news <- rbind(data_news, 
-                            as.data.frame(readLines(filecon, 1)))
-    }
-  }
-  colnames(data_news) <- 'text'
-  
-  # set name of file where data will be saved
-  output_file <- paste(path('data/data_subset/'), 'en_US_news_subset_', ii, '.csv', sep = '')
-  
-  # write data to file
-  write.csv(data_news, 
-            file = output_file,
-            quote = FALSE, row.names = FALSE)
-  
-  # close file connection
-  close(filecon)
-  
-}
-
-### en_US.blogs.txt
-
-# create a subset file in each iteration of the loop
-# during each iteration, open the file connect, 
-# read random lines, save a file with the read lines, 
-# and close the file connection
-for (ii in 1:nFiles) {
-  
-  # decide whether or not to read each line
-  # 0.5% of the time, read the line
-  toss_blogs <- rbinom(n = nLines_blogs, size = 1, prob = prob)
-  
-  # open file connection
-  filecon <- file(path('data/data_raw/en_US/en_US.blogs.txt'), 'r')
-  
-  # initialize data frame to store lines that have been read
-  data_blogs <- data.frame()
-  
-  # loop through lines in the file and read random selection
-  for (jj in 1:nLines_blogs) {
-    if (toss_blogs[jj] == 1) {
-      data_blogs <- rbind(data_blogs, 
-                         as.data.frame(readLines(filecon, 1)))
-    }
-  }
-  colnames(data_blogs) <- 'text'
-  
-  # set name of file where data will be saved
-  output_file <- paste(path('data/data_subset/'), 'en_US_blogs_subset_', ii, '.csv', sep = '')
-  
-  # write data to file
-  write.csv(data_blogs, 
-            file = output_file,
-            quote = FALSE, row.names = FALSE)
-  
-  # close file connection
-  close(filecon)
-  
-}
-
-rm(data_twitter, data_news, data_blogs)
+#####
 
 # regular expressions:
 
@@ -247,7 +155,7 @@ tally
 
 ####### command line options for all answers:
 # get file size
-ls -alh (gets file size)
+#ls -alh (gets file size)
 
 #get number of lines
 #awk '{print length}' filename |sort -nr|head -1

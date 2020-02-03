@@ -1,0 +1,385 @@
+---
+title: "Week 2 Milestone Report"
+subtitle: "Data Science Capstone"
+author: "Shelby Bachman"
+date: "February 2, 2020"
+output:
+  html_document:
+    fig_caption: yes
+    number_sections: no
+    theme: cosmo
+    toc: no
+---
+
+```{r init, include=FALSE}
+
+knitr::opts_chunk$set(warning = FALSE,
+                      message = FALSE)
+
+```
+
+# Setup
+
+```{r setup}
+
+rm(list = ls())
+library(rprojroot)
+library(R.utils)
+library(dplyr)
+library(stringr)
+library(kableExtra)
+library(tm)
+library(quanteda)
+library(ggplot2)
+library(ggpubr)
+
+path <- function(x) find_root_file(x, criterion = has_file('data-science-capstone.Rproj'))
+
+```
+
+# Download and load data
+
+```{r load_data, eval = TRUE}
+
+# define filenames
+file_twitter <- path('data/data_raw/en_US/en_US.twitter.txt')
+file_news <- path('data/data_raw/en_US/en_US.news.txt')
+file_blogs <- path('data/data_raw/en_US/en_US.blogs.txt')
+
+# load files
+filecon <- file(file_twitter, 'r')
+text_twitter <- readLines(filecon, encoding = 'UTF-8', warn = FALSE)
+close(filecon)
+
+filecon <- file(file_news, 'r')
+text_news <- readLines(filecon, encoding = 'UTF-8', warn = FALSE)
+close(filecon)
+
+filecon <- file(file_blogs, 'r')
+text_blogs <- readLines(filecon, encoding = 'UTF-8', warn = FALSE)
+close(filecon)
+
+```
+
+# Summary statistics
+
+Below I report some information on each of the data files, as well as a summary of the strings contained in each file.
+
+```{r summarize_data, eval = TRUE}
+
+summary_files <- data.frame(filename_full = c(file_twitter, file_news, file_blogs))
+summary_files <- summary_files %>%
+  rowwise() %>%
+  mutate(filename = stringr::str_split(filename_full, '/')[[1]][10]) %>%
+  select(-filename_full)
+
+# get size of each file in Mb
+file_sizes <- sapply(list(file_twitter, file_news, file_blogs), function(x) {(file.info(x)$size)/10^6} )
+
+# get number of lines in each file 
+file_nLines <- sapply(list(text_twitter, text_news, text_blogs), function(x) {length(x)} )
+
+# get minimum and maximum number of characters in a single line in each file
+file_minChars <- sapply(list(text_twitter, text_news, text_blogs), function(x) {min(nchar(x))})
+file_maxChars <- sapply(list(text_twitter, text_news, text_blogs), function(x) {max(nchar(x))})
+
+# combine into a summary dataframe
+data.frame(summary_files, file_sizes, file_nLines, file_minChars, file_maxChars) %>%
+  kable(col.names = c('Filename', 'File size (Mb)', 'Number of lines', 
+                      'Min chars per line', 'Max chars per line')) %>%
+  kable_styling(full_width = FALSE)
+
+```
+
+```{r summarize_data_sample, eval = TRUE}
+
+# randomly sample the 18th line in each file
+file_sample <- sapply(list(text_twitter, text_news, text_blogs), function(x) {x[18]})
+
+# combine into a summary dataframe
+data.frame(summary_files, file_sample) %>%
+  kable(col.names = c('Filename', 'Sample data')) %>%
+  kable_styling(full_width = FALSE)
+
+```
+
+```{r remove_vars, include = FALSE}
+
+rm(text_twitter, text_news, text_blogs)
+
+```
+
+# Subset data
+
+Because the files are so large, I will subset the data and work with these subsets to develop my prediction algorithm. But first, since I want to utilize data from all three sources (twitter, news, and blogs), I combine the data from each file into a single object (`text_all`). Then, I randomly choose lines from each file so as to create 30 subsets of the data.
+
+```{r subset_data, eval = FALSE}
+
+# join data from all files into a single object
+text_all <- c(text_twitter, text_news, text_blogs)
+
+# set number of lines for each subsample by rounding down
+nSamples <-  30 # total number of samples
+nLinesPerSample <- floor(nLines_total / nSamples)
+
+# randomly permute order of lines in text_all
+text_all <- text_all[sample(nLines_total)]
+
+for (ii in 1:nSamples) {
+  
+  # set indices of lines to read
+  index_start <- nLinesPerSample*(ii-1) + 1
+  index_end <- nLinesPerSample*ii
+  indices <- index_start:index_end
+  
+  # subset lines and save
+  text_subset <- text_all[indices] 
+  
+  # write subset to file
+  filename_subset <- paste(path('data/data_subset/subset_'), ii, '.txt', sep = '')
+  filecon <- file(filename_subset, 'w')
+  writeLines(text_subset, filecon)
+  close(filecon)
+  rm(filename_subset, text_subset)
+  
+}
+
+rm(text_all, text_twitter, text_news, text_blogs)
+
+```
+
+# Functions to clean and tokenize
+
+# Cleaning of data
+
+Next, I will convert each subset of the data into a corpus and perform necessary cleaning on the data before further processing. Below I include a function `clean_text_data` which cleans a corpus using the `tm` package. My approach is based on my reading of [this tutorial](https://eight2late.wordpress.com/2015/05/27/a-gentle-introduction-to-text-mining-using-r/). The steps performed by the function are:
+
+- Converting all characters in the corpus to lowercase
+- Removing numbers from the corpus
+- Replacing these punctuation marks within the corpus with spaces: /, @, #
+- Removing all other punctuation marks from the corpus
+- Stripping extra whitespace from the corpus
+- As noted below, English stopwords are not removed in this step but in a subsequent step
+
+```{r function_clean_data, eval = FALSE}
+
+# this function cleans text data in a corpus
+clean_text_data <- function(this_corpus) {
+  
+  # 1. change all text to lowercase
+  this_corpus_cleaned <- tm_map(this_corpus, content_transformer(tolower))
+  
+  # 2. remove numbers from corpus
+  this_corpus_cleaned <- tm_map(this_corpus_cleaned, removeNumbers)
+  
+  # 3. replace some punctuation with spaces, including :, -, /, \, |
+  # use the tm package to create a "content_transformer" function
+  # this function takes a function as input, which specifies what transformation is done
+  # in this particular case, gsub is used to detect punctuation of interest & replace with a space
+  convert_to_space <- content_transformer(function(x, pattern) {return (gsub(pattern, ' ', x))})
+  this_corpus_cleaned <- tm_map(this_corpus_cleaned, convert_to_space, '/')
+  this_corpus_cleaned <- tm_map(this_corpus_cleaned, convert_to_space, '@')
+  this_corpus_cleaned <- tm_map(this_corpus_cleaned, convert_to_space, '#')
+  
+  # 4. remove punctuation
+  this_corpus_cleaned <- tm_map(this_corpus_cleaned, removePunctuation)
+  
+  # 5. strip extra whitespace
+  this_corpus_cleaned <- tm_map(this_corpus_cleaned, stripWhitespace)
+  
+  # not removing english stopwords until dfm creation, see below
+  
+  return(this_corpus_cleaned)
+  
+}
+
+```
+
+# Tokenization of data
+
+After the data in each corpus is cleaned, I will *tokenize* each corpus, meaning I will divide each up into tokens. Below I define a function `tokenize_text_data` which tokenizes a corpus using the `quanteda` package. My approach is based on my reading of [this tutorial](https://tutorials.quanteda.io). 
+
+```{r function_tokenize_data, eval = FALSE}
+
+tokenize_text_data <- function(this_corpus_cleaned) {
+  
+  # convert tm corpus to quanteda corpus 
+  this_corpus_cleaned_q <- corpus(this_corpus_cleaned)
+  
+  # segment corpus into tokens by word boundaries
+  this_corpus_tokens <- tokens(this_corpus_cleaned_q,
+                               remove_punct = TRUE,
+                               remove_symbols = TRUE,
+                               remove_twitter = TRUE,
+                               remove_url = TRUE)
+  
+  return(this_corpus_tokens)
+  
+}
+
+```
+
+# Applying functions to clean and tokenize data
+
+Having defined these functions, I now apply them to each subset of the data iteratively. On each iteration of the loop below, I read in one of the subsetted data files, I convert the loaded data to a corpus, I clean the corpus using the above-defined function (which relies on the `tm` package), I tokenize the corpus using the above-defined function (which relies on the `quanteda` package), and I write the tokenized data to a file. The result is that 30 tokenized data files, 1 for each subsetted data file, gets saved.
+
+```{r clean_and_tokenize_data, eval = FALSE}
+
+###### loop through subsetted data and iteratively load and clean each file
+# after the cleaning and tokenization steps, save the file
+textFiles <- 1:30
+
+for (ii in 1:length(textFiles)) {
+  
+  filename_toRead <- paste(path('data/data_subset/subset_'), textFiles[ii], '.txt', sep = '')
+  filename_full <- str_split(filename_toRead, '/')[[1]][9]
+  filename_prefix <- str_split(filename_full, '.txt')[[1]][1]
+  
+  # A. load the text file as a corpus
+  this_corpus <- Corpus(DirSource(path('data/data_subset'), pattern = filename_full))
+  
+  # B. clean the corpus using tm
+  this_corpus_cleaned <- clean_text_data(this_corpus)
+  
+  rm(this_corpus)
+  
+  # C. tokenize the corpus using quanteda
+  this_corpus_tokens <- tokenize_text_data(this_corpus_cleaned)
+  
+  # write the tokenized data to file
+  filename_tokenized <- paste(path('data/data_tokenized/'), filename_prefix, '_tokenized.RData', sep = '')
+  save(this_corpus_tokens, file = filename_tokenized)
+  
+}
+
+rm(this_corpus_cleaned, this_corpus_tokens)
+
+```
+
+# Create document feature matrices
+
+Next, I load five subsets of the data (in subsequent weeks I may load more than one subset depending on memory demands), and join them together. This corresponds to approximately **1/6** of the original data being used in the testing here.
+
+I then use the `quanteda` package to create document feature matrices and subsequently report dataframes with the frequency of each identified unigram, bigram, and trigram. In addition, I add columns in the bigram table to report the "starting" and "ending" word within each token, and in the trigram table, I report the two "starting words" and the single "ending" word within each token. The resulting dataframes will be used for my prediction algorithm. I save them so that they can be simply loaded as part of the shiny app implementation, rather than doing any of the preprocessing in the app.
+
+```{r create_dfms, eval = FALSE}
+
+# load data files and join into single corpus
+subsets_to_choose <- 5
+for (ii in 1:subsets_to_choose) {
+  filename_toRead <- paste(path('data/data_tokenized/subset_'), ii, '_tokenized.RData', sep = '')
+  load(filename_toRead)
+  
+    if (ii == 1) {
+    all_tokens <- this_corpus_tokens
+  } else {
+    all_tokens <- c(all_tokens, this_corpus_tokens)
+  }
+  
+}
+
+# create document feature matrices
+this_dfm_unigram <- dfm(all_tokens, ngrams = 1)
+this_dfm_bigram <- dfm(all_tokens, ngrams = 2)
+this_dfm_trigram <- dfm(all_tokens, ngrams = 3)
+
+rm(all_tokens, this_corpus_tokens)
+
+# compute frequency of each feature in each matrix
+this_freq_unigram <- textstat_frequency(this_dfm_unigram) %>%
+  select(feature, frequency)
+this_freq_bigram <- textstat_frequency(this_dfm_bigram) %>%
+  select(feature, frequency)
+this_freq_trigram <- textstat_frequency(this_dfm_trigram) %>%
+  select(feature, frequency)
+
+rm(this_dfm_unigram, this_dfm_bigram, this_dfm_trigram)
+
+# create additional columns in bigram table
+this_freq_bigram <- this_freq_bigram %>%
+  rowwise() %>%
+  mutate(start = str_split(feature, '_')[[1]][1],
+         end = str_split(feature, '_')[[1]][2])
+
+# create additional columns in trigram table
+this_freq_trigram <- this_freq_trigram %>%
+  rowwise() %>%
+  mutate(first = str_split(feature, '_')[[1]][1],
+         second = str_split(feature, '_')[[1]][2],
+         start = paste(first, second, sep = ' '),
+         end = str_split(feature, '_')[[1]][3]) %>%
+  select(feature, frequency, start, end)
+
+# save frequency tables
+save(this_freq_unigram, file = path('data/data_dfm/freq_unigram.RData'))
+save(this_freq_bigram, file = path('data/data_dfm/freq_bigram.RData'))
+save(this_freq_trigram, file = path('data/data_dfm/freq_trigram.RData'))
+
+```
+
+# Token frequencies
+
+A preview of each type of frequency table (e.g. for unigrams, bigrams, and trigrams) is shown below. Each table has been arranged such that the tokens are presented in decreasing order of frequency.
+
+```{r load_freq_tables, include = FALSE}
+
+load(path('data/data_dfm/freq_unigram.RData'))
+load(path('data/data_dfm/freq_bigram.RData'))
+load(path('data/data_dfm/freq_trigram.RData'))
+
+```
+
+```{r preview_freq_tables}
+
+kable(head(this_freq_unigram, 5)) %>%
+  kable_styling(full_width = F)
+
+kable(head(this_freq_bigram, 5)) %>%
+  kable_styling(full_width = F)
+
+kable(head(this_freq_trigram, 5)) %>%
+  kable_styling(full_width = F)
+
+```
+
+A histogram showing the frequency of the 30 most frequent unigrams, in alphabetical order, is shown below:
+
+```{r show_freq_unigrams}
+
+ggplot(data = this_freq_unigram[1:30,], 
+       aes(x = feature, y = frequency)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_pubr() +
+  theme(axis.text.x = element_text(size=14, angle=90, hjust=1, vjust=1)) 
+  
+```
+
+A histogram showing the frequency of the 30 most frequent bigrams, in alphabetical order, is shown below:
+
+```{r show_freq_bigrams}
+
+ggplot(data = this_freq_bigram[1:30,], 
+       aes(x = feature, y = frequency)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_pubr() +
+  theme(axis.text.x = element_text(size=14, angle=90, hjust=1, vjust=1)) 
+  
+```
+
+A histogram showing the frequency of the 30 most frequent trigrams, in alphabetical order, is shown below:
+
+```{r show_freq_trigrams}
+
+ggplot(data = this_freq_trigram[1:30,], 
+       aes(x = feature, y = frequency)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_pubr() +
+  theme(axis.text.x = element_text(size=14, angle=90, hjust=1, vjust=1)) 
+  
+```
+
+# Plans for prediction algorithm and shiny app
+
+The frequency data I calculated and visualized in the last steps will serve as the basis of my prediction method. My general approach will be to use these data to calculate observed and unobserved token probabilities for a given input word or set of words, and use those probabilities in tandem to compute the word most likely to follow the input(s).
+
+Implementing the prediction algorithm in a Shiny app will be straightforward. I will load the feature frequency dataframes that will contain token frequencies reflecting between 1/10 and 1/6 of the originally provided data, avoiding the problem of having to preprocess the data within the app itself. I will ensure that the dataframes that will be loaded are not so large so as to slow down the token probability calculations.
