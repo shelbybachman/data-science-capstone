@@ -50,7 +50,7 @@ clean_text_data <- function(this_corpus) {
   # 6. remove common words in english (for list, see: http://en.wikipedia.org/wiki/Stop_words)
   # this step takes longer than the others
   # skipping for now (done in quanteda during dfm creation)
-  # this_corpus_cleaned <- tm_map(this_corpus_cleaned, removeWords, stopwords('english'))
+  #this_corpus_cleaned <- tm_map(this_corpus_cleaned, removeWords, stopwords('english'))
   
   return(this_corpus_cleaned)
   
@@ -91,7 +91,7 @@ tokenize_text_data <- function(this_corpus_cleaned) {
 
 ###### loop through subsetted data and iteratively load and clean each file
 # after the cleaning and tokenization steps, save the file
-textFiles <- 1:30
+textFiles <- 1:2
 for (ii in 1:length(textFiles)) {
   
   filename_toRead <- paste(path('data/data_subset/subset_'), textFiles[ii], '.txt', sep = '')

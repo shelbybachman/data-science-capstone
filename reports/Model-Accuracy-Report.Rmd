@@ -1,0 +1,296 @@
+---
+title: "Model Accuracy Report"
+subtitle: "Data Science Capstone"
+author: "Shelby Bachman"
+date: "May 1, 2020"
+output:
+  html_document:
+    fig_caption: yes
+    number_sections: no
+    theme: cosmo
+    toc: no
+---
+
+In this report, I test the accuracy of my word prediction model (trained on the training set) using data from the test set. The training set included a random 20% of the originally provided data, and the test set included a non-overlapping, random 3.3% subset of the original data. 
+
+For testing, I selected a subset of 3- and 4-grams from the test set. To test the model predictions for both frequent and less frequent n-grams in the test set, I selected both high- and low-frequency 3- and 4-grams, with <u>high-frequency</u> being those occuring more than 50 times in the test set and <u>low-frequency</u> being those occurring less than 25 but more than 10 times in the test set. This led to a total of 50 3-grams (25 high-freq, 25 low-freq) and 50 4-grams (25 high-freq, 25 low-freq) from the test set being inputted to the model.
+
+Accuracy of the model's predictions was assessed as follows: 
+
+- (The word prediction app returns a variable number of predicted next words, and their relative probabilities; for the purposes of testing, I had the model return the 50 most likely next words). 
+- For each test set n-gram, if the model correctly predicted the final word of the n-gram and that word had the highest relative probability, accuracy was considered to be `1`. 
+- If the model correctly predicted the final word but that word did not have the highest relative probability, accuracy was calculated as `1` minus the relative rank of the word on the prediction list. 
+- So if the word was the third most likely next word out of 50, then accuracy would be `0.96`. If the model did not correctly predict the final word of the n-gram, accuracy was considered to be `0`.
+
+I repeated this entire process once for the model trained on the full dataset, then again for the model trained on a subset of the training data to be used for the shiny app. To reduce the time for the model to run in the app, I reduced the training set to include only n-grams with frequency greater than 2. Plots showing <u>model accuracy vs. test set n-gram frequency</u> are located at the bottom of this report.
+
+The code below was originally run with the script in this repository `data-science-capstone/scripts/4-test-model.R` and is included below for reference. 
+
+```{r init, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+
+```
+
+# Setup
+
+```{r setup}
+
+# clear workspace
+rm(list = ls())
+
+# load libraries
+library(rprojroot)
+library(data.table)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(ggpubr)
+
+# path to this project
+path <- function(x) find_root_file(x, criterion = has_file('data-science-capstone.Rproj'))
+
+# function to predict next word
+source(path('scripts/predict_next_word.R'))
+
+# number of samples from each ngram/frequency bin
+n_samples <- 25
+
+```
+
+```{r test_set1, eval = FALSE, echo = TRUE}
+
+################# TRAINING SET 1 (all n-grams)
+# training set: 6 data subsets (20% of all data) used to train model
+# test set: 1 data subset (not in training set), thus 16.7% of training set size
+
+# load training dataset
+load(path('data/data_dfm/freq_unigram.RData'))
+load(path('data/data_dfm/freq_bigram.RData'))
+load(path('data/data_dfm/freq_trigram.RData'))
+load(path('data/data_dfm/freq_quadgram.RData'))
+
+# load test set & keep only frequent n-grams
+load(path('data/data_dfm/freq_trigram_test.RData'))
+test_freq_trigram <- test_freq_trigram %>%
+  filter(frequency > 50)
+load(path('data/data_dfm/freq_quadgram_test.RData'))
+test_freq_quadgram <- test_freq_quadgram %>%
+  filter(frequency > 50)
+
+#### test model accuracy for frequent n-grams:
+# how well does training set predict next word 
+# of randomly selected n-gram from the test set?
+evaluate_accuracy <- function(x, y) {
+  results <- predict_next_word(x, n_to_return = 50, return_df = TRUE)
+  results$rank <- 1:nrow(results)
+  if (y %in% results$end) {
+    if (which(results$end == y) == which(results$rank == 1)) {
+      accuracy = 1
+    } else {
+      accuracy = (50 - (results$rank[which(results$end == y)]) + 1) / 50
+    }
+  } else {
+    accuracy = 0
+  }
+  return(accuracy)
+}
+
+
+## test of trigram accuracy
+inds <- sample(1:nrow(test_freq_trigram), n_samples)
+freq_val_trigram <- test_freq_trigram$frequency[inds]
+accuracy_trigram <- NULL
+for (ii in 1:length(inds)) {
+  accuracy_trigram[ii] <- evaluate_accuracy(test_freq_trigram$start[inds[ii]], test_freq_trigram$end[inds[ii]])
+}
+
+## test of quadgram accuracy
+inds <- sample(1:nrow(test_freq_quadgram), n_samples)
+freq_val_quadgram <- test_freq_quadgram$frequency[inds]
+accuracy_quadgram <- NULL
+for (ii in 1:length(inds)) {
+  accuracy_quadgram[ii] <- evaluate_accuracy(test_freq_quadgram$start[inds[ii]], test_freq_quadgram$end[inds[ii]])
+}
+
+#### test model accuracy: less frequent n-grams
+
+# load test set & keep only less frequent n-grams
+load(path('data/data_dfm/freq_trigram_test.RData'))
+test_freq_trigram <- test_freq_trigram %>%
+  filter(frequency < 25 & frequency > 10)
+load(path('data/data_dfm/freq_quadgram_test.RData'))
+test_freq_quadgram <- test_freq_quadgram %>%
+  filter(frequency < 25 & frequency > 10)
+
+#### test of trigram accuracy
+inds <- sample(1:nrow(test_freq_trigram), n_samples)
+freq_val_trigram2 <- test_freq_trigram$frequency[inds]
+accuracy_trigram_lowFreq <- NULL
+for (ii in 1:length(inds)) {
+  accuracy_trigram_lowFreq[ii] <- evaluate_accuracy(test_freq_trigram$start[inds[ii]], test_freq_trigram$end[inds[ii]])
+}
+
+#### test of quadgram accuracy
+inds <- sample(1:nrow(test_freq_quadgram), n_samples)
+freq_val_quadgram2 <- test_freq_quadgram$frequency[inds]
+accuracy_quadgram_lowFreq <- NULL
+for (ii in 1:length(inds)) {
+  accuracy_quadgram_lowFreq[ii] <- evaluate_accuracy(test_freq_quadgram$start[inds[ii]], test_freq_quadgram$end[inds[ii]])
+}
+
+accuracy_data_set1 <- as.data.frame(rbind(
+  data.frame(accuracy = accuracy_quadgram, ngram = rep('4-gram', n_samples), 
+             freq_level = rep('high frequency', n_samples), indx = 1:n_samples, 
+             freq_test = freq_val_quadgram),
+  data.frame(accuracy = accuracy_trigram, ngram = rep('3-gram', n_samples), 
+             freq_level = rep('high frequency', n_samples), indx = 1:n_samples, 
+             freq_test = freq_val_trigram),
+  data.frame(accuracy = accuracy_quadgram_lowFreq, ngram = rep('4-gram', n_samples), 
+             freq_level = rep('low frequency', n_samples), indx = 1:n_samples, 
+             freq_test = freq_val_quadgram2),
+  data.frame(accuracy = accuracy_trigram_lowFreq, ngram = rep('3-gram', n_samples), 
+             freq_level = rep('low frequency', n_samples), indx = 1:n_samples, 
+             freq_test = freq_val_trigram2)
+))
+
+```
+
+```{r test_set2, eval = FALSE, echo = TRUE}
+
+################# TRAINING SET 2 (only n-grams with freq > 2)
+# training set: 6 data subsets (20% of all data) used to train model
+# test set: 1 data subset (not in training set), thus 16.7% of training set size
+
+# load training dataset
+load(path('app/data/freq_unigram_short.RData'))
+load(path('app/data/freq_bigram_short.RData'))
+load(path('app/data/freq_trigram_short.RData'))
+load(path('app/data//freq_quadgram_short.RData'))
+
+# load test set & keep only frequent n-grams
+load(path('data/data_dfm/freq_trigram_test.RData'))
+test_freq_trigram <- test_freq_trigram %>%
+  filter(frequency > 50)
+load(path('data/data_dfm/freq_quadgram_test.RData'))
+test_freq_quadgram <- test_freq_quadgram %>%
+  filter(frequency > 50)
+
+#### test model accuracy for frequent n-grams:
+# how well does training set predict next word 
+# of randomly selected n-gram from the test set?
+evaluate_accuracy <- function(x, y) {
+  results <- predict_next_word(x, n_to_return = 50, return_df = TRUE)
+  results$rank <- 1:nrow(results)
+  if (y %in% results$end) {
+    if (which(results$end == y) == which(results$rank == 1)) {
+      accuracy = 1
+    } else {
+      accuracy = (50 - (results$rank[which(results$end == y)]) + 1) / 50
+    }
+  } else {
+    accuracy = 0
+  }
+  return(accuracy)
+}
+
+## test of trigram accuracy
+inds <- sample(1:nrow(test_freq_trigram), n_samples)
+freq_val_trigram <- test_freq_trigram$frequency[inds]
+accuracy_trigram <- NULL
+for (ii in 1:length(inds)) {
+  accuracy_trigram[ii] <- evaluate_accuracy(test_freq_trigram$start[inds[ii]], test_freq_trigram$end[inds[ii]])
+}
+
+## test of quadgram accuracy
+inds <- sample(1:nrow(test_freq_quadgram), n_samples)
+freq_val_quadgram <- test_freq_quadgram$frequency[inds]
+accuracy_quadgram <- NULL
+for (ii in 1:length(inds)) {
+  accuracy_quadgram[ii] <- evaluate_accuracy(test_freq_quadgram$start[inds[ii]], test_freq_quadgram$end[inds[ii]])
+}
+
+#### test model accuracy: less frequent n-grams
+
+# load test set & keep only less frequent n-grams
+load(path('data/data_dfm/freq_trigram_test.RData'))
+test_freq_trigram <- test_freq_trigram %>%
+  filter(frequency < 25 & frequency > 10)
+load(path('data/data_dfm/freq_quadgram_test.RData'))
+test_freq_quadgram <- test_freq_quadgram %>%
+  filter(frequency < 25 & frequency > 10)
+
+#### test of trigram accuracy
+inds <- sample(1:nrow(test_freq_trigram), n_samples)
+freq_val_trigram2 <- test_freq_trigram$frequency[inds]
+accuracy_trigram_lowFreq <- NULL
+for (ii in 1:length(inds)) {
+  accuracy_trigram_lowFreq[ii] <- evaluate_accuracy(test_freq_trigram$start[inds[ii]], test_freq_trigram$end[inds[ii]])
+}
+
+#### test of quadgram accuracy
+inds <- sample(1:nrow(test_freq_quadgram), n_samples)
+freq_val_quadgram2 <- test_freq_quadgram$frequency[inds]
+accuracy_quadgram_lowFreq <- NULL
+for (ii in 1:length(inds)) {
+  accuracy_quadgram_lowFreq[ii] <- evaluate_accuracy(test_freq_quadgram$start[inds[ii]], test_freq_quadgram$end[inds[ii]])
+}
+
+accuracy_data_set2 <- as.data.frame(rbind(
+  data.frame(accuracy = accuracy_quadgram, ngram = rep('4-gram', n_samples), 
+             freq_level = rep('high frequency', n_samples), indx = 1:n_samples, 
+             freq_test = freq_val_quadgram),
+  data.frame(accuracy = accuracy_trigram, ngram = rep('3-gram', n_samples), 
+             freq_level = rep('high frequency', n_samples), indx = 1:n_samples,
+             freq_test = freq_val_trigram),
+  data.frame(accuracy = accuracy_quadgram_lowFreq, ngram = rep('4-gram', n_samples), 
+             freq_level = rep('low frequency', n_samples), indx = 1:n_samples, 
+             freq_test = freq_val_quadgram2),
+  data.frame(accuracy = accuracy_trigram_lowFreq, ngram = rep('3-gram', n_samples), 
+             freq_level = rep('low frequency', n_samples), indx = 1:n_samples, 
+             freq_test = freq_val_trigram2)
+))
+
+```
+
+# Accuracy vs. test set n-gram frequency
+
+```{r load_data, echo = FALSE, eval = TRUE}
+
+accuracy_data_set1 <- fread(path('data/data_accuracy/accuracy_set1.csv'))
+accuracy_data_set2 <- fread(path('data/data_accuracy/accuracy_set2.csv'))
+
+```
+
+```{r plots, fig.width = 12, fig.width = 5}
+
+accuracy_data_set1$ngram <- factor(accuracy_data_set1$ngram, levels = c('3-gram', '4-gram'))
+accuracy_data_set2$ngram <- factor(accuracy_data_set2$ngram, levels = c('3-gram', '4-gram'))
+
+p_set1 <- ggplot(data = accuracy_data_set1 %>% arrange(ngram, freq_test), 
+                 aes(x = freq_test, y = accuracy, colour = factor(ngram), group = factor(ngram))) +
+  geom_point() +
+  geom_smooth(method = 'loess', se = FALSE) +
+  scale_color_brewer(palette = 'Set2') +
+  coord_cartesian(xlim = c(50, 300), ylim = c(0.7, 1)) +
+  labs(x = 'Frequency of n-gram in test set', y = 'Accuracy', colour = '',
+       title = 'Training set:\nAll n-grams') +
+  theme_pubr()
+
+p_set2 <- ggplot(data = accuracy_data_set2 %>% arrange(ngram, freq_test), 
+                 aes(x = freq_test, y = accuracy, colour = factor(ngram), group = factor(ngram))) +
+  geom_point() +
+  geom_smooth(method = 'loess', se = FALSE) +
+  scale_color_brewer(palette = 'Set2') +
+  coord_cartesian(xlim = c(50, 300), ylim = c(0.7, 1)) +
+  labs(x = 'Frequency of n-gram in test set', y = 'Accuracy', colour = '',
+       title = 'Training set for app:\nn-grams with frequency > 2') +
+  theme_pubr()
+
+p <- ggarrange(p_set1, p_set2, nrow = 1, common.legend = TRUE)
+p
+
+```
+

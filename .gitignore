@@ -2,7 +2,12 @@
 .Rhistory
 .RData
 .Ruserdata
+data/data_accuracy/*
+data/data_dfm/*
 data/data_raw/*
 data/data_subset/*
 data/data_tokenized/*
-data/data_dfm/*
+app/functions/*
+app/data/*
+resources/*
+scripts/predict_next_word.R
