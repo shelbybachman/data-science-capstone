@@ -9,5 +9,6 @@ data/data_subset/*
 data/data_tokenized/*
 app/functions/*
 app/data/*
+app/rsconnect/*
 resources/*
 scripts/predict_next_word.R

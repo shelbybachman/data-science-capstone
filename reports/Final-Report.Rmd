@@ -81,7 +81,7 @@ I set several additional "rules" for how the app would behave given differently 
 
 ## Word prediction app: instructions {.smaller}
 
-The final app can be found [here](LINK)!
+The final app can be found [here](https://shelbybachman.shinyapps.io/Word-Prediction-App/)!
 
 **Instructions:** Enter a phrase of any length in the text box, and press "Predict".
 
